@@ -18,6 +18,8 @@ configurations {
     compileOnly {
         extendsFrom annotationProcessor
     }
+    // Mockito inline mock maker가 동적 attach 대신 정적 javaagent를 사용하도록 분리 구성한다.
+    mockitoAgent
 }
 
 repositories {
@@ -32,8 +34,16 @@ dependencies {
     annotationProcessor 'org.projectlombok:lombok'
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    // 테스트 JVM 시작 시 -javaagent로 주입할 Mockito 에이전트 JAR(단일 파일 고정).
+    mockitoAgent('org.mockito:mockito-core') {
+        transitive = false
+    }
 }
 
 tasks.named('test') {
     useJUnitPlatform()
+    // JDK의 동적 에이전트 로딩 제한에 대비해 Mockito 에이전트를 정적으로 등록한다.
+    jvmArgs "-javaagent:${configurations.mockitoAgent.singleFile.absolutePath}"
+    // 일부 JDK에서 부트스트랩 classpath append 시 출력되는 CDS 경고를 방지한다.
+    jvmArgs '-Xshare:off'
 }
