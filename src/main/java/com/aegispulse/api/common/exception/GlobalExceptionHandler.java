@@ -2,9 +2,9 @@ package com.aegispulse.api.common.exception;
 
 import com.aegispulse.api.common.response.ApiResponse;
 import com.aegispulse.api.common.response.ErrorResponse;
+import com.aegispulse.infra.web.trace.TraceIdSupport;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.Objects;
-import java.util.UUID;
 import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -25,10 +25,6 @@ import org.springframework.web.server.ResponseStatusException;
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
-
-    private static final String TRACE_ID_ATTRIBUTE = "traceId";
-    private static final String TRACE_ID_HEADER = "X-Trace-Id";
-    private static final String TRACE_ID_MDC_KEY = "traceId";
 
     @ExceptionHandler(AegisPulseException.class)
     public ResponseEntity<ApiResponse<Void>> handleAegisPulseException(
@@ -131,22 +127,22 @@ public class GlobalExceptionHandler {
 
     private String resolveTraceId(HttpServletRequest request) {
         // Stage 0 traceId 필터 적용 전에도 에러 응답에 traceId가 항상 존재하도록 방어적으로 생성한다.
-        String attributeTraceId = (String) request.getAttribute(TRACE_ID_ATTRIBUTE);
+        String attributeTraceId = (String) request.getAttribute(TraceIdSupport.TRACE_ID_ATTRIBUTE);
         if (StringUtils.hasText(attributeTraceId)) {
             return attributeTraceId;
         }
 
-        String headerTraceId = request.getHeader(TRACE_ID_HEADER);
+        String headerTraceId = request.getHeader(TraceIdSupport.TRACE_ID_HEADER);
         if (StringUtils.hasText(headerTraceId)) {
             return headerTraceId;
         }
 
-        String mdcTraceId = MDC.get(TRACE_ID_MDC_KEY);
+        String mdcTraceId = MDC.get(TraceIdSupport.TRACE_ID_MDC_KEY);
         if (StringUtils.hasText(mdcTraceId)) {
             return mdcTraceId;
         }
 
-        return UUID.randomUUID().toString().replace("-", "");
+        return TraceIdSupport.generate();
     }
 
     private String toErrorCode(HttpStatus status) {
