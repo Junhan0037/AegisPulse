@@ -1,0 +1,16 @@
+# AegisPulse 공통 애플리케이션 이름.
+spring:
+  application:
+    name: aegispulse
+  # 로컬/테스트 기본 실행 프로필은 dev를 사용한다.
+  profiles:
+    default: dev
+
+# 종료 시 진행 중인 요청 정리를 위한 graceful shutdown을 공통 적용한다.
+server:
+  shutdown: graceful
+
+# 모든 환경에서 traceId(MDC)를 콘솔 로그에 포함해 요청 상관관계를 보장한다.
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [%thread] %logger{36} traceId=%X{traceId:-} - %msg%n"
