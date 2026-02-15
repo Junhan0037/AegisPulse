@@ -9,7 +9,18 @@ import com.aegispulse.domain.service.model.ServiceEnvironment;
  */
 public interface ManagedServiceRepository {
 
+    /**
+     * serviceId 기준 존재 여부를 조회한다.
+     */
+    boolean existsById(String serviceId);
+
+    /**
+     * 동일 환경의 서비스 이름 중복 여부를 조회한다.
+     */
     boolean existsByEnvironmentAndName(ServiceEnvironment environment, String name);
 
+    /**
+     * 서비스 도메인 모델을 저장한다.
+     */
     ManagedService save(ManagedService service);
 }

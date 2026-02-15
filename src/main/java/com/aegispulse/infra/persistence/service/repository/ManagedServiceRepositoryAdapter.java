@@ -17,6 +17,11 @@ public class ManagedServiceRepositoryAdapter implements ManagedServiceRepository
     private final ManagedServiceJpaRepository managedServiceJpaRepository;
 
     @Override
+    public boolean existsById(String serviceId) {
+        return managedServiceJpaRepository.existsById(serviceId);
+    }
+
+    @Override
     public boolean existsByEnvironmentAndName(ServiceEnvironment environment, String name) {
         return managedServiceJpaRepository.existsByEnvironmentAndName(environment, name);
     }
