@@ -24,6 +24,12 @@ public class ManagedRouteRepositoryAdapter implements ManagedRouteRepository {
     }
 
     @Override
+    public boolean existsByIdAndServiceId(String routeId, String serviceId) {
+        // routeId와 serviceId의 소속 일치 여부를 DB에서 단건 존재 조회로 검증한다.
+        return managedRouteJpaRepository.existsByIdAndServiceId(routeId, serviceId);
+    }
+
+    @Override
     public ManagedRoute save(ManagedRoute route) {
         return managedRouteJpaRepository.save(ManagedRouteJpaEntity.fromDomain(route)).toDomain();
     }

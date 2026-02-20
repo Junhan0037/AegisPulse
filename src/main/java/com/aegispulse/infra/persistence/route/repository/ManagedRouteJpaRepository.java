@@ -10,4 +10,10 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface ManagedRouteJpaRepository extends JpaRepository<ManagedRouteJpaEntity, String> {
 
     List<ManagedRouteJpaEntity> findAllByServiceId(String serviceId);
+
+    /**
+     * routeId + serviceId 조합 존재 여부를 확인한다.
+     * 템플릿 정책 적용 요청의 대상 무결성 검증에 사용한다.
+     */
+    boolean existsByIdAndServiceId(String routeId, String serviceId);
 }

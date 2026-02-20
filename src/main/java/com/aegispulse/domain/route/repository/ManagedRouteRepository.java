@@ -14,6 +14,12 @@ public interface ManagedRouteRepository {
     List<ManagedRoute> findAllByServiceId(String serviceId);
 
     /**
+     * routeId가 특정 serviceId에 속하는지 조회한다.
+     * 템플릿 적용 시 라우트 소속 검증(권한/대상 일관성)에 사용한다.
+     */
+    boolean existsByIdAndServiceId(String routeId, String serviceId);
+
+    /**
      * 라우트 도메인 모델을 저장한다.
      */
     ManagedRoute save(ManagedRoute route);
