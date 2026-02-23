@@ -20,6 +20,7 @@ public class TrafficPolicy {
     private static final int MAX_TIMEOUT_MS = 10_000;
     private static final int MIN_RETRY_COUNT = 0;
     private static final int MAX_RETRY_COUNT = 5;
+    private static final int FIXED_RETRY_BACKOFF_MS = 100;
 
     private final int rateLimitPerMinute;
     private final int timeoutConnectMs;
@@ -41,7 +42,7 @@ public class TrafficPolicy {
         validateRange("timeoutReadMs", timeoutReadMs, MIN_TIMEOUT_MS, MAX_TIMEOUT_MS);
         validateRange("timeoutWriteMs", timeoutWriteMs, MIN_TIMEOUT_MS, MAX_TIMEOUT_MS);
         validateRange("retryCount", retryCount, MIN_RETRY_COUNT, MAX_RETRY_COUNT);
-        validateMin("retryBackoffMs", retryBackoffMs, 1);
+        validateFixed("retryBackoffMs", retryBackoffMs, FIXED_RETRY_BACKOFF_MS);
 
         return TrafficPolicy.builder()
             .rateLimitPerMinute(rateLimitPerMinute)
@@ -59,9 +60,9 @@ public class TrafficPolicy {
         }
     }
 
-    private static void validateMin(String fieldName, int value, int min) {
-        if (value < min) {
-            throw new IllegalArgumentException(fieldName + "는 " + min + " 이상이어야 합니다.");
+    private static void validateFixed(String fieldName, int value, int fixedValue) {
+        if (value != fixedValue) {
+            throw new IllegalArgumentException(fieldName + "는 " + fixedValue + "이어야 합니다.");
         }
     }
 }
