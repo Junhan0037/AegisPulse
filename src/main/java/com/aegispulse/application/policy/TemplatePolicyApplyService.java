@@ -11,6 +11,7 @@ import com.aegispulse.domain.route.repository.ManagedRouteRepository;
 import com.aegispulse.domain.service.repository.ManagedServiceRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -30,16 +31,22 @@ public class TemplatePolicyApplyService implements TemplatePolicyApplyUseCase {
     private final ManagedRouteRepository managedRouteRepository;
     private final TemplatePolicyMapper templatePolicyMapper;
     private final PolicyBindingRepository policyBindingRepository;
+    private final PolicyDeploymentPort policyDeploymentPort;
     private final ObjectMapper objectMapper;
 
     @Override
-    @Transactional
+    @Transactional(noRollbackFor = AegisPulseException.class)
     public ApplyTemplatePolicyResult apply(ApplyTemplatePolicyCommand command) {
         validateServiceExists(command.getServiceId());
         validateRouteOwnership(command.getRouteId(), command.getServiceId());
 
+        Optional<PolicyBinding> previousBinding = policyBindingRepository.findLatest(
+            command.getServiceId(),
+            command.getRouteId()
+        );
         TemplatePolicyProfile profile = templatePolicyMapper.map(command.getTemplateType());
         String snapshot = serializePolicySnapshot(profile);
+        int nextVersion = previousBinding.map(binding -> binding.getVersion() + 1).orElse(INITIAL_POLICY_VERSION);
 
         PolicyBinding candidate = PolicyBinding.newBinding(
             generatePolicyBindingId(),
@@ -47,10 +54,54 @@ public class TemplatePolicyApplyService implements TemplatePolicyApplyUseCase {
             command.getRouteId(),
             command.getTemplateType(),
             snapshot,
-            INITIAL_POLICY_VERSION
+            nextVersion
         );
 
         PolicyBinding saved = policyBindingRepository.save(candidate);
+        try {
+            policyDeploymentPort.apply(saved);
+        } catch (RuntimeException ignored) {
+            rollbackWhenApplyFailed(previousBinding, saved);
+        }
+
+        return buildApplyResult(saved);
+    }
+
+    private void rollbackWhenApplyFailed(Optional<PolicyBinding> previousBinding, PolicyBinding failedBinding) {
+        if (previousBinding.isEmpty()) {
+            throw new AegisPulseException(
+                ErrorCode.INTERNAL_SERVER_ERROR,
+                "정책 적용에 실패했습니다. 복구할 이전 스냅샷이 없습니다."
+            );
+        }
+
+        PolicyBinding latest = previousBinding.get();
+        PolicyBinding rollbackCandidate = PolicyBinding.newBinding(
+            generatePolicyBindingId(),
+            failedBinding.getServiceId(),
+            failedBinding.getRouteId(),
+            latest.getTemplateType(),
+            latest.getPolicySnapshot(),
+            failedBinding.getVersion() + 1
+        );
+
+        PolicyBinding rollbackBinding = policyBindingRepository.save(rollbackCandidate);
+        try {
+            policyDeploymentPort.apply(rollbackBinding);
+        } catch (RuntimeException rollbackException) {
+            throw new AegisPulseException(
+                ErrorCode.INTERNAL_SERVER_ERROR,
+                "정책 적용 및 자동 롤백에 실패했습니다."
+            );
+        }
+
+        throw new AegisPulseException(
+            ErrorCode.INTERNAL_SERVER_ERROR,
+            "정책 적용에 실패하여 이전 스냅샷으로 자동 롤백했습니다."
+        );
+    }
+
+    private ApplyTemplatePolicyResult buildApplyResult(PolicyBinding saved) {
         return ApplyTemplatePolicyResult.builder()
             .bindingId(saved.getId())
             .serviceId(saved.getServiceId())
