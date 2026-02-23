@@ -33,5 +33,6 @@ class ManagedConsumerRepositoryAdapterTest {
         assertThat(saved.getType()).isEqualTo(ConsumerType.PARTNER);
         assertThat(saved.getCreatedAt()).isNotNull();
         assertThat(exists).isTrue();
+        assertThat(managedConsumerRepository.findById("csm_01aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")).isPresent();
     }
 }
