@@ -1,11 +1,17 @@
 package com.aegispulse.api.consumer;
 
+import com.aegispulse.api.common.exception.AegisPulseException;
+import com.aegispulse.api.common.exception.ErrorCode;
 import com.aegispulse.api.common.response.ApiResponse;
 import com.aegispulse.api.consumer.dto.CreateConsumerRequest;
 import com.aegispulse.api.consumer.dto.CreateConsumerResponse;
+import com.aegispulse.api.consumer.dto.IssueConsumerKeyResponse;
 import com.aegispulse.application.consumer.ConsumerRegistrationUseCase;
 import com.aegispulse.application.consumer.command.RegisterConsumerCommand;
 import com.aegispulse.application.consumer.result.RegisterConsumerResult;
+import com.aegispulse.application.consumer.key.IssueConsumerKeyUseCase;
+import com.aegispulse.application.consumer.key.command.IssueConsumerKeyCommand;
+import com.aegispulse.application.consumer.key.result.IssueConsumerKeyResult;
 import com.aegispulse.infra.web.trace.TraceIdSupport;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -13,6 +19,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.StringUtils;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -28,6 +35,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class ConsumerCommandController {
 
     private final ConsumerRegistrationUseCase consumerRegistrationUseCase;
+    private final IssueConsumerKeyUseCase issueConsumerKeyUseCase;
 
     @PostMapping
     public ResponseEntity<ApiResponse<CreateConsumerResponse>> createConsumer(
@@ -44,6 +52,29 @@ public class ConsumerCommandController {
             .consumerId(result.getConsumerId())
             .name(result.getName())
             .type(result.getType())
+            .build();
+
+        return ResponseEntity.status(HttpStatus.CREATED)
+            .body(ApiResponse.success(response, resolveTraceId(httpServletRequest)));
+    }
+
+    @PostMapping("/{consumerId}/keys")
+    public ResponseEntity<ApiResponse<IssueConsumerKeyResponse>> issueConsumerKey(
+        @PathVariable String consumerId,
+        HttpServletRequest httpServletRequest
+    ) {
+        if (!StringUtils.hasText(consumerId)) {
+            throw new AegisPulseException(ErrorCode.INVALID_REQUEST, "consumerId는 필수입니다.");
+        }
+
+        IssueConsumerKeyResult result = issueConsumerKeyUseCase.issue(
+            IssueConsumerKeyCommand.builder()
+                .consumerId(consumerId.trim())
+                .build()
+        );
+        IssueConsumerKeyResponse response = IssueConsumerKeyResponse.builder()
+            .keyId(result.getKeyId())
+            .apiKey(result.getApiKey())
             .build();
 
         return ResponseEntity.status(HttpStatus.CREATED)

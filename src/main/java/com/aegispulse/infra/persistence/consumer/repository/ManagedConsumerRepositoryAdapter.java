@@ -3,6 +3,7 @@ package com.aegispulse.infra.persistence.consumer.repository;
 import com.aegispulse.domain.consumer.model.ManagedConsumer;
 import com.aegispulse.domain.consumer.repository.ManagedConsumerRepository;
 import com.aegispulse.infra.persistence.consumer.entity.ManagedConsumerJpaEntity;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
@@ -14,6 +15,11 @@ import org.springframework.stereotype.Repository;
 public class ManagedConsumerRepositoryAdapter implements ManagedConsumerRepository {
 
     private final ManagedConsumerJpaRepository managedConsumerJpaRepository;
+
+    @Override
+    public Optional<ManagedConsumer> findById(String consumerId) {
+        return managedConsumerJpaRepository.findById(consumerId).map(ManagedConsumerJpaEntity::toDomain);
+    }
 
     @Override
     public boolean existsByName(String name) {
