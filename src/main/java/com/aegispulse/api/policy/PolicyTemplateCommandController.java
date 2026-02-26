@@ -40,10 +40,14 @@ public class PolicyTemplateCommandController {
         @Valid @RequestBody ApplyTemplatePolicyRequest request,
         HttpServletRequest httpServletRequest
     ) {
+        TemplateType resolvedTemplateType = parseTemplateType(templateType);
+        validatePartnerRequest(resolvedTemplateType, request.getConsumerId());
+
         ApplyTemplatePolicyCommand command = ApplyTemplatePolicyCommand.builder()
             .serviceId(request.getServiceId().trim())
             .routeId(normalizeOptionalId(request.getRouteId()))
-            .templateType(parseTemplateType(templateType))
+            .consumerId(normalizeOptionalId(request.getConsumerId()))
+            .templateType(resolvedTemplateType)
             .build();
 
         ApplyTemplatePolicyResult result = templatePolicyApplyUseCase.apply(command);
@@ -77,6 +81,12 @@ public class PolicyTemplateCommandController {
             return null;
         }
         return rawId.trim();
+    }
+
+    private void validatePartnerRequest(TemplateType templateType, String consumerId) {
+        if (templateType == TemplateType.PARTNER && !StringUtils.hasText(consumerId)) {
+            throw new AegisPulseException(ErrorCode.INVALID_REQUEST, "partner 템플릿은 consumerId가 필수입니다.");
+        }
     }
 
     private String resolveTraceId(HttpServletRequest request) {

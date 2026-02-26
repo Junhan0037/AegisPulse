@@ -2,10 +2,16 @@ package com.aegispulse.application.policy;
 
 import com.aegispulse.api.common.exception.AegisPulseException;
 import com.aegispulse.api.common.exception.ErrorCode;
+import com.aegispulse.domain.consumer.key.model.ConsumerKeyStatus;
+import com.aegispulse.domain.consumer.key.repository.ManagedConsumerKeyRepository;
+import com.aegispulse.domain.consumer.model.ConsumerType;
+import com.aegispulse.domain.consumer.model.ManagedConsumer;
+import com.aegispulse.domain.consumer.repository.ManagedConsumerRepository;
 import com.aegispulse.application.policy.command.ApplyTemplatePolicyCommand;
 import com.aegispulse.application.policy.result.ApplyTemplatePolicyResult;
 import com.aegispulse.domain.policy.model.PolicyBinding;
 import com.aegispulse.domain.policy.model.TemplatePolicyProfile;
+import com.aegispulse.domain.policy.model.TemplateType;
 import com.aegispulse.domain.policy.repository.PolicyBindingRepository;
 import com.aegispulse.domain.route.repository.ManagedRouteRepository;
 import com.aegispulse.domain.service.repository.ManagedServiceRepository;
@@ -16,6 +22,7 @@ import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 /**
  * 템플릿 정책 적용 유스케이스 구현체.
@@ -29,6 +36,8 @@ public class TemplatePolicyApplyService implements TemplatePolicyApplyUseCase {
 
     private final ManagedServiceRepository managedServiceRepository;
     private final ManagedRouteRepository managedRouteRepository;
+    private final ManagedConsumerRepository managedConsumerRepository;
+    private final ManagedConsumerKeyRepository managedConsumerKeyRepository;
     private final TemplatePolicyMapper templatePolicyMapper;
     private final PolicyBindingRepository policyBindingRepository;
     private final PolicyDeploymentPort policyDeploymentPort;
@@ -39,6 +48,7 @@ public class TemplatePolicyApplyService implements TemplatePolicyApplyUseCase {
     public ApplyTemplatePolicyResult apply(ApplyTemplatePolicyCommand command) {
         validateServiceExists(command.getServiceId());
         validateRouteOwnership(command.getRouteId(), command.getServiceId());
+        validatePartnerTemplateRequirements(command);
 
         Optional<PolicyBinding> previousBinding = policyBindingRepository.findLatest(
             command.getServiceId(),
@@ -125,6 +135,33 @@ public class TemplatePolicyApplyService implements TemplatePolicyApplyUseCase {
         }
         if (!managedRouteRepository.existsByIdAndServiceId(routeId, serviceId)) {
             throw new AegisPulseException(ErrorCode.RESOURCE_NOT_FOUND, "요청한 라우트를 찾을 수 없습니다.");
+        }
+    }
+
+    private void validatePartnerTemplateRequirements(ApplyTemplatePolicyCommand command) {
+        if (command.getTemplateType() != TemplateType.PARTNER) {
+            return;
+        }
+        if (!StringUtils.hasText(command.getConsumerId())) {
+            throw new AegisPulseException(ErrorCode.INVALID_REQUEST, "partner 템플릿은 consumerId가 필수입니다.");
+        }
+
+        ManagedConsumer consumer = managedConsumerRepository.findById(command.getConsumerId())
+            .orElseThrow(() -> new AegisPulseException(ErrorCode.RESOURCE_NOT_FOUND, "요청한 consumer를 찾을 수 없습니다."));
+
+        if (consumer.getType() != ConsumerType.PARTNER) {
+            throw new AegisPulseException(ErrorCode.INVALID_REQUEST, "partner 타입 consumer만 partner 템플릿에 연동할 수 있습니다.");
+        }
+
+        boolean hasActiveKey = !managedConsumerKeyRepository.findAllByConsumerIdAndStatus(
+            command.getConsumerId(),
+            ConsumerKeyStatus.ACTIVE
+        ).isEmpty();
+        if (!hasActiveKey) {
+            throw new AegisPulseException(
+                ErrorCode.INVALID_REQUEST,
+                "partner 템플릿은 ACTIVE API Key를 가진 consumer만 연동할 수 있습니다."
+            );
         }
     }
 

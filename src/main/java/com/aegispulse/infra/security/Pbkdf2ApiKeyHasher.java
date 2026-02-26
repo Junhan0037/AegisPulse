@@ -2,6 +2,7 @@ package com.aegispulse.infra.security;
 
 import com.aegispulse.application.consumer.key.ApiKeyHasher;
 import java.security.GeneralSecurityException;
+import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.util.Base64;
 import javax.crypto.SecretKeyFactory;
@@ -44,6 +45,39 @@ public class Pbkdf2ApiKeyHasher implements ApiKeyHasher {
             throw new IllegalStateException("API Key 해시 생성에 실패했습니다.", exception);
         } finally {
             spec.clearPassword();
+        }
+    }
+
+    @Override
+    public boolean matches(String plainKey, String hashedKey) {
+        if (!StringUtils.hasText(plainKey) || !StringUtils.hasText(hashedKey)) {
+            return false;
+        }
+
+        String[] tokens = hashedKey.split("\\$");
+        if (tokens.length != 4 || !"pbkdf2".equals(tokens[0])) {
+            return false;
+        }
+
+        try {
+            int iterations = Integer.parseInt(tokens[1]);
+            byte[] salt = Base64.getUrlDecoder().decode(tokens[2]);
+            byte[] expectedHash = Base64.getUrlDecoder().decode(tokens[3]);
+            if (iterations < 1 || expectedHash.length == 0) {
+                return false;
+            }
+
+            PBEKeySpec spec = new PBEKeySpec(plainKey.toCharArray(), salt, iterations, expectedHash.length * 8);
+            try {
+                SecretKeyFactory keyFactory = SecretKeyFactory.getInstance(ALGORITHM);
+                byte[] actualHash = keyFactory.generateSecret(spec).getEncoded();
+                // 해시 비교는 타이밍 공격 완화를 위해 상수 시간 비교를 사용한다.
+                return MessageDigest.isEqual(expectedHash, actualHash);
+            } finally {
+                spec.clearPassword();
+            }
+        } catch (IllegalArgumentException | GeneralSecurityException exception) {
+            return false;
         }
     }
 }

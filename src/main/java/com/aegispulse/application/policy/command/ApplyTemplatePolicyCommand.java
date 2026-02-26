@@ -13,5 +13,6 @@ public class ApplyTemplatePolicyCommand {
 
     private final String serviceId;
     private final String routeId;
+    private final String consumerId;
     private final TemplateType templateType;
 }

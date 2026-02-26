@@ -1,4 +1,4 @@
-package com.aegispulse.api.policy.dto;
+package com.aegispulse.api.consumer.dto;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
@@ -7,14 +7,13 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 /**
- * 템플릿 정책 적용 요청 DTO.
- * 서비스 단위 또는 특정 라우트 단위 적용을 위해 serviceId 필수, routeId 선택 입력을 받는다.
- * partner 템플릿은 consumerId를 함께 전달해 키 인증 연동 대상을 명시한다.
+ * Consumer API Key 인증 요청 DTO.
+ * partner 템플릿이 적용된 서비스/라우트와 consumer 식별자를 입력받는다.
  */
 @Getter
 @Setter
 @NoArgsConstructor
-public class ApplyTemplatePolicyRequest {
+public class AuthenticateConsumerKeyRequest {
 
     @NotBlank(message = "serviceId는 필수입니다.")
     private String serviceId;
@@ -22,6 +21,6 @@ public class ApplyTemplatePolicyRequest {
     @Pattern(regexp = "^(?!\\s*$).+", message = "routeId는 비어 있을 수 없습니다.")
     private String routeId;
 
-    @Pattern(regexp = "^(?!\\s*$).+", message = "consumerId는 비어 있을 수 없습니다.")
+    @NotBlank(message = "consumerId는 필수입니다.")
     private String consumerId;
 }
