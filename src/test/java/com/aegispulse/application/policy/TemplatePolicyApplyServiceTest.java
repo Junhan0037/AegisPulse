@@ -5,14 +5,20 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.doThrow;
 
 import com.aegispulse.api.common.exception.AegisPulseException;
 import com.aegispulse.api.common.exception.ErrorCode;
 import com.aegispulse.application.policy.command.ApplyTemplatePolicyCommand;
 import com.aegispulse.application.policy.result.ApplyTemplatePolicyResult;
+import com.aegispulse.domain.consumer.key.model.ConsumerKeyStatus;
+import com.aegispulse.domain.consumer.key.model.ManagedConsumerKey;
+import com.aegispulse.domain.consumer.key.repository.ManagedConsumerKeyRepository;
+import com.aegispulse.domain.consumer.model.ConsumerType;
+import com.aegispulse.domain.consumer.model.ManagedConsumer;
+import com.aegispulse.domain.consumer.repository.ManagedConsumerRepository;
 import com.aegispulse.domain.policy.model.AuthPolicy;
 import com.aegispulse.domain.policy.model.AuthType;
 import com.aegispulse.domain.policy.model.PolicyBinding;
@@ -43,6 +49,12 @@ class TemplatePolicyApplyServiceTest {
 
     @Mock
     private ManagedRouteRepository managedRouteRepository;
+
+    @Mock
+    private ManagedConsumerRepository managedConsumerRepository;
+
+    @Mock
+    private ManagedConsumerKeyRepository managedConsumerKeyRepository;
 
     @Mock
     private TemplatePolicyMapper templatePolicyMapper;
@@ -113,11 +125,16 @@ class TemplatePolicyApplyServiceTest {
         ApplyTemplatePolicyCommand command = ApplyTemplatePolicyCommand.builder()
             .serviceId("svc_01")
             .routeId(null)
+            .consumerId("csm_partner")
             .templateType(TemplateType.PARTNER)
             .build();
 
         TemplatePolicyProfile profile = partnerProfile();
         given(managedServiceRepository.existsById("svc_01")).willReturn(true);
+        given(managedConsumerRepository.findById("csm_partner"))
+            .willReturn(Optional.of(partnerConsumer("csm_partner")));
+        given(managedConsumerKeyRepository.findAllByConsumerIdAndStatus("csm_partner", ConsumerKeyStatus.ACTIVE))
+            .willReturn(List.of(activeKey("key_01")));
         given(policyBindingRepository.findLatest("svc_01", null)).willReturn(Optional.empty());
         given(templatePolicyMapper.map(TemplateType.PARTNER)).willReturn(profile);
         given(objectMapper.writeValueAsString(profile)).willReturn("{\"templateType\":\"PARTNER\"}");
@@ -183,6 +200,7 @@ class TemplatePolicyApplyServiceTest {
         ApplyTemplatePolicyCommand command = ApplyTemplatePolicyCommand.builder()
             .serviceId("svc_01")
             .routeId("rte_01")
+            .consumerId("csm_partner")
             .templateType(TemplateType.PARTNER)
             .build();
 
@@ -198,6 +216,10 @@ class TemplatePolicyApplyServiceTest {
 
         given(managedServiceRepository.existsById("svc_01")).willReturn(true);
         given(managedRouteRepository.existsByIdAndServiceId("rte_01", "svc_01")).willReturn(true);
+        given(managedConsumerRepository.findById("csm_partner"))
+            .willReturn(Optional.of(partnerConsumer("csm_partner")));
+        given(managedConsumerKeyRepository.findAllByConsumerIdAndStatus("csm_partner", ConsumerKeyStatus.ACTIVE))
+            .willReturn(List.of(activeKey("key_01")));
         given(policyBindingRepository.findLatest("svc_01", "rte_01")).willReturn(Optional.of(previous));
         given(templatePolicyMapper.map(TemplateType.PARTNER)).willReturn(profile);
         given(objectMapper.writeValueAsString(profile)).willReturn("{\"templateType\":\"PARTNER\"}");
@@ -332,6 +354,101 @@ class TemplatePolicyApplyServiceTest {
         then(policyDeploymentPort).should(never()).apply(any());
     }
 
+    @Test
+    @DisplayName("partner 템플릿인데 consumerId가 없으면 INVALID_REQUEST 예외를 던진다")
+    void shouldThrowBadRequestWhenPartnerTemplateMissingConsumerId() {
+        ApplyTemplatePolicyCommand command = ApplyTemplatePolicyCommand.builder()
+            .serviceId("svc_01")
+            .routeId(null)
+            .templateType(TemplateType.PARTNER)
+            .build();
+
+        given(managedServiceRepository.existsById("svc_01")).willReturn(true);
+
+        assertThatThrownBy(() -> templatePolicyApplyService.apply(command))
+            .isInstanceOf(AegisPulseException.class)
+            .satisfies(exception -> {
+                AegisPulseException aegisPulseException = (AegisPulseException) exception;
+                assertThat(aegisPulseException.getErrorCode()).isEqualTo(ErrorCode.INVALID_REQUEST);
+            });
+
+        then(managedConsumerRepository).should(never()).findById(any());
+        then(policyBindingRepository).should(never()).save(any());
+    }
+
+    @Test
+    @DisplayName("partner 템플릿의 consumer가 없으면 RESOURCE_NOT_FOUND 예외를 던진다")
+    void shouldThrowNotFoundWhenPartnerConsumerDoesNotExist() {
+        ApplyTemplatePolicyCommand command = ApplyTemplatePolicyCommand.builder()
+            .serviceId("svc_01")
+            .routeId(null)
+            .consumerId("csm_missing")
+            .templateType(TemplateType.PARTNER)
+            .build();
+
+        given(managedServiceRepository.existsById("svc_01")).willReturn(true);
+        given(managedConsumerRepository.findById("csm_missing")).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> templatePolicyApplyService.apply(command))
+            .isInstanceOf(AegisPulseException.class)
+            .satisfies(exception -> {
+                AegisPulseException aegisPulseException = (AegisPulseException) exception;
+                assertThat(aegisPulseException.getErrorCode()).isEqualTo(ErrorCode.RESOURCE_NOT_FOUND);
+            });
+
+        then(policyBindingRepository).should(never()).save(any());
+    }
+
+    @Test
+    @DisplayName("partner 템플릿에 INTERNAL consumer를 연동하면 INVALID_REQUEST 예외를 던진다")
+    void shouldThrowBadRequestWhenConsumerTypeIsNotPartner() {
+        ApplyTemplatePolicyCommand command = ApplyTemplatePolicyCommand.builder()
+            .serviceId("svc_01")
+            .routeId(null)
+            .consumerId("csm_internal")
+            .templateType(TemplateType.PARTNER)
+            .build();
+
+        given(managedServiceRepository.existsById("svc_01")).willReturn(true);
+        given(managedConsumerRepository.findById("csm_internal"))
+            .willReturn(Optional.of(ManagedConsumer.newConsumer("csm_internal", "internal-client-a", ConsumerType.INTERNAL)));
+
+        assertThatThrownBy(() -> templatePolicyApplyService.apply(command))
+            .isInstanceOf(AegisPulseException.class)
+            .satisfies(exception -> {
+                AegisPulseException aegisPulseException = (AegisPulseException) exception;
+                assertThat(aegisPulseException.getErrorCode()).isEqualTo(ErrorCode.INVALID_REQUEST);
+            });
+
+        then(policyBindingRepository).should(never()).save(any());
+    }
+
+    @Test
+    @DisplayName("partner 템플릿에 ACTIVE 키가 없으면 INVALID_REQUEST 예외를 던진다")
+    void shouldThrowBadRequestWhenPartnerConsumerHasNoActiveKey() {
+        ApplyTemplatePolicyCommand command = ApplyTemplatePolicyCommand.builder()
+            .serviceId("svc_01")
+            .routeId(null)
+            .consumerId("csm_partner")
+            .templateType(TemplateType.PARTNER)
+            .build();
+
+        given(managedServiceRepository.existsById("svc_01")).willReturn(true);
+        given(managedConsumerRepository.findById("csm_partner"))
+            .willReturn(Optional.of(partnerConsumer("csm_partner")));
+        given(managedConsumerKeyRepository.findAllByConsumerIdAndStatus("csm_partner", ConsumerKeyStatus.ACTIVE))
+            .willReturn(List.of());
+
+        assertThatThrownBy(() -> templatePolicyApplyService.apply(command))
+            .isInstanceOf(AegisPulseException.class)
+            .satisfies(exception -> {
+                AegisPulseException aegisPulseException = (AegisPulseException) exception;
+                assertThat(aegisPulseException.getErrorCode()).isEqualTo(ErrorCode.INVALID_REQUEST);
+            });
+
+        then(policyBindingRepository).should(never()).save(any());
+    }
+
     private TemplatePolicyProfile publicProfile() {
         return TemplatePolicyProfile.of(
             TemplateType.PUBLIC,
@@ -348,6 +465,14 @@ class TemplatePolicyApplyServiceTest {
             AuthPolicy.of(AuthType.API_KEY_REQUIRED, true, List.of(), 1_048_576),
             true
         );
+    }
+
+    private ManagedConsumer partnerConsumer(String consumerId) {
+        return ManagedConsumer.newConsumer(consumerId, "partner-client-a", ConsumerType.PARTNER);
+    }
+
+    private ManagedConsumerKey activeKey(String keyId) {
+        return ManagedConsumerKey.newActiveKey(keyId, "csm_partner", "pbkdf2$sample");
     }
 
     private PolicyBinding restoredBinding(

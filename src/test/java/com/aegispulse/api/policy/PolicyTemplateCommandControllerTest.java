@@ -64,7 +64,8 @@ class PolicyTemplateCommandControllerTest {
                     """
                     {
                       "serviceId": " svc_01JABCXYZ ",
-                      "routeId": " rte_01JABCXYZ "
+                      "routeId": " rte_01JABCXYZ ",
+                      "consumerId": " csm_01JABCXYZ "
                     }
                     """
                 )
@@ -84,6 +85,7 @@ class PolicyTemplateCommandControllerTest {
         // path/body 입력을 정규화해 유스케이스로 전달하는지 검증한다.
         Assertions.assertThat(commandCaptor.getValue().getServiceId()).isEqualTo("svc_01JABCXYZ");
         Assertions.assertThat(commandCaptor.getValue().getRouteId()).isEqualTo("rte_01JABCXYZ");
+        Assertions.assertThat(commandCaptor.getValue().getConsumerId()).isEqualTo("csm_01JABCXYZ");
         Assertions.assertThat(commandCaptor.getValue().getTemplateType()).isEqualTo(TemplateType.PARTNER);
     }
 
@@ -92,6 +94,28 @@ class PolicyTemplateCommandControllerTest {
     void shouldReturnBadRequestWhenTemplateTypeIsInvalid() throws Exception {
         mockMvc.perform(
             post("/api/v1/policies/templates/unknown/apply")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """
+                    {
+                      "serviceId": "svc_01JABCXYZ"
+                    }
+                    """
+                )
+        )
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.success").value(false))
+            .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"))
+            .andExpect(jsonPath("$.error.traceId", not(blankOrNullString())));
+
+        then(templatePolicyApplyUseCase).should(never()).apply(any());
+    }
+
+    @Test
+    @DisplayName("partner 템플릿에서 consumerId가 없으면 400 INVALID_REQUEST를 반환한다")
+    void shouldReturnBadRequestWhenPartnerConsumerIdIsMissing() throws Exception {
+        mockMvc.perform(
+            post("/api/v1/policies/templates/partner/apply")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     """

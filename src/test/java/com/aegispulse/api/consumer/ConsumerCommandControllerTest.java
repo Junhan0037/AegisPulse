@@ -15,8 +15,11 @@ import com.aegispulse.api.common.exception.AegisPulseException;
 import com.aegispulse.api.common.exception.ErrorCode;
 import com.aegispulse.application.consumer.ConsumerRegistrationUseCase;
 import com.aegispulse.application.consumer.command.RegisterConsumerCommand;
+import com.aegispulse.application.consumer.key.AuthenticateConsumerKeyUseCase;
 import com.aegispulse.application.consumer.key.IssueConsumerKeyUseCase;
+import com.aegispulse.application.consumer.key.command.AuthenticateConsumerKeyCommand;
 import com.aegispulse.application.consumer.key.command.IssueConsumerKeyCommand;
+import com.aegispulse.application.consumer.key.result.AuthenticateConsumerKeyResult;
 import com.aegispulse.application.consumer.key.result.IssueConsumerKeyResult;
 import com.aegispulse.application.consumer.result.RegisterConsumerResult;
 import com.aegispulse.infra.web.trace.TraceIdFilter;
@@ -49,6 +52,9 @@ class ConsumerCommandControllerTest {
 
     @MockitoBean
     private IssueConsumerKeyUseCase issueConsumerKeyUseCase;
+
+    @MockitoBean
+    private AuthenticateConsumerKeyUseCase authenticateConsumerKeyUseCase;
 
     @Test
     @DisplayName("Consumer 생성 성공 시 201과 공통 응답 포맷을 반환한다")
@@ -250,5 +256,99 @@ class ConsumerCommandControllerTest {
             .andExpect(jsonPath("$.success").value(false))
             .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"))
             .andExpect(jsonPath("$.error.traceId").value("trace-key-type-invalid"));
+    }
+
+    @Test
+    @DisplayName("API Key 인증 성공 시 200과 인증 결과를 반환한다")
+    void shouldAuthenticateConsumerKeyWhenRequestIsValid() throws Exception {
+        given(authenticateConsumerKeyUseCase.authenticate(any()))
+            .willReturn(
+                AuthenticateConsumerKeyResult.builder()
+                    .authenticated(true)
+                    .consumerId("csm_01JABCXYZ")
+                    .keyId("key_01JABCXYZ")
+                    .build()
+            );
+
+        mockMvc.perform(
+            post("/api/v1/consumers/keys/authenticate")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("X-API-Key", "ak_plain_key_once")
+                .header(TraceIdSupport.TRACE_ID_HEADER, "trace-key-auth-001")
+                .content(
+                    """
+                    {
+                      "serviceId": " svc_01JABCXYZ ",
+                      "routeId": " rte_01JABCXYZ ",
+                      "consumerId": " csm_01JABCXYZ "
+                    }
+                    """
+                )
+        )
+            .andExpect(status().isOk())
+            .andExpect(header().string(TraceIdSupport.TRACE_ID_HEADER, "trace-key-auth-001"))
+            .andExpect(jsonPath("$.success").value(true))
+            .andExpect(jsonPath("$.data.authenticated").value(true))
+            .andExpect(jsonPath("$.data.consumerId").value("csm_01JABCXYZ"))
+            .andExpect(jsonPath("$.data.keyId").value("key_01JABCXYZ"))
+            .andExpect(jsonPath("$.traceId").value("trace-key-auth-001"));
+
+        ArgumentCaptor<AuthenticateConsumerKeyCommand> commandCaptor = ArgumentCaptor.forClass(
+            AuthenticateConsumerKeyCommand.class
+        );
+        then(authenticateConsumerKeyUseCase).should().authenticate(commandCaptor.capture());
+        Assertions.assertThat(commandCaptor.getValue().getServiceId()).isEqualTo("svc_01JABCXYZ");
+        Assertions.assertThat(commandCaptor.getValue().getRouteId()).isEqualTo("rte_01JABCXYZ");
+        Assertions.assertThat(commandCaptor.getValue().getConsumerId()).isEqualTo("csm_01JABCXYZ");
+        Assertions.assertThat(commandCaptor.getValue().getApiKey()).isEqualTo("ak_plain_key_once");
+    }
+
+    @Test
+    @DisplayName("X-API-Key 헤더가 없으면 401 UNAUTHORIZED를 반환한다")
+    void shouldReturnUnauthorizedWhenApiKeyHeaderIsMissing() throws Exception {
+        mockMvc.perform(
+            post("/api/v1/consumers/keys/authenticate")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """
+                    {
+                      "serviceId": "svc_01JABCXYZ",
+                      "consumerId": "csm_01JABCXYZ"
+                    }
+                    """
+                )
+        )
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.success").value(false))
+            .andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"))
+            .andExpect(jsonPath("$.error.traceId", not(blankOrNullString())));
+
+        then(authenticateConsumerKeyUseCase).should(never()).authenticate(any());
+    }
+
+    @Test
+    @DisplayName("폐기된 키면 403 FORBIDDEN을 반환한다")
+    void shouldReturnForbiddenWhenApiKeyIsRevoked() throws Exception {
+        given(authenticateConsumerKeyUseCase.authenticate(any()))
+            .willThrow(new AegisPulseException(ErrorCode.FORBIDDEN, "폐기된 API Key입니다."));
+
+        mockMvc.perform(
+            post("/api/v1/consumers/keys/authenticate")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("X-API-Key", "ak_revoked")
+                .header(TraceIdSupport.TRACE_ID_HEADER, "trace-key-auth-revoked")
+                .content(
+                    """
+                    {
+                      "serviceId": "svc_01JABCXYZ",
+                      "consumerId": "csm_01JABCXYZ"
+                    }
+                    """
+                )
+        )
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.success").value(false))
+            .andExpect(jsonPath("$.error.code").value("FORBIDDEN"))
+            .andExpect(jsonPath("$.error.traceId").value("trace-key-auth-revoked"));
     }
 }
