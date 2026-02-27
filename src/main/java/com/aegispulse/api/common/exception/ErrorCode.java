@@ -16,6 +16,8 @@ public enum ErrorCode {
     SERVICE_DUPLICATED(HttpStatus.CONFLICT, "SERVICE_DUPLICATED", "동일 환경에 이미 존재하는 서비스 이름입니다."),
     CONSUMER_DUPLICATED(HttpStatus.CONFLICT, "CONSUMER_DUPLICATED", "이미 존재하는 consumer 이름입니다."),
     ROUTE_CONFLICT(HttpStatus.CONFLICT, "ROUTE_CONFLICT", "동일 서비스 내 충돌하는 라우트입니다."),
+    ALERT_NOT_FOUND(HttpStatus.NOT_FOUND, "ALERT_NOT_FOUND", "요청한 알림을 찾을 수 없습니다."),
+    ALERT_STATE_CONFLICT(HttpStatus.CONFLICT, "ALERT_STATE_CONFLICT", "요청한 알림 상태에서 수행할 수 없는 작업입니다."),
     UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "인증에 실패했습니다."),
     FORBIDDEN(HttpStatus.FORBIDDEN, "FORBIDDEN", "접근 권한이 없습니다."),
     INTERNAL_SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_SERVER_ERROR", "서버 내부 오류가 발생했습니다.");

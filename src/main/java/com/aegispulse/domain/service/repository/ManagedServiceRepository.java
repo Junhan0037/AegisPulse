@@ -2,6 +2,7 @@ package com.aegispulse.domain.service.repository;
 
 import com.aegispulse.domain.service.model.ManagedService;
 import com.aegispulse.domain.service.model.ServiceEnvironment;
+import java.util.List;
 
 /**
  * Service 도메인 저장소 추상화.
@@ -23,4 +24,9 @@ public interface ManagedServiceRepository {
      * 서비스 도메인 모델을 저장한다.
      */
     ManagedService save(ManagedService service);
+
+    /**
+     * 평가/배치 작업에 사용할 전체 서비스 목록을 조회한다.
+     */
+    List<ManagedService> findAll();
 }

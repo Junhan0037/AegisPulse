@@ -4,6 +4,7 @@ import com.aegispulse.domain.service.model.ManagedService;
 import com.aegispulse.domain.service.model.ServiceEnvironment;
 import com.aegispulse.domain.service.repository.ManagedServiceRepository;
 import com.aegispulse.infra.persistence.service.entity.ManagedServiceJpaEntity;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
@@ -29,5 +30,12 @@ public class ManagedServiceRepositoryAdapter implements ManagedServiceRepository
     @Override
     public ManagedService save(ManagedService service) {
         return managedServiceJpaRepository.save(ManagedServiceJpaEntity.fromDomain(service)).toDomain();
+    }
+
+    @Override
+    public List<ManagedService> findAll() {
+        return managedServiceJpaRepository.findAll().stream()
+            .map(ManagedServiceJpaEntity::toDomain)
+            .toList();
     }
 }
