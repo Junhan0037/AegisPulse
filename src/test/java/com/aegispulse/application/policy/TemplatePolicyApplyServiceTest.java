@@ -3,6 +3,8 @@ package com.aegispulse.application.policy;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.doThrow;
@@ -11,6 +13,7 @@ import static org.mockito.Mockito.times;
 
 import com.aegispulse.api.common.exception.AegisPulseException;
 import com.aegispulse.api.common.exception.ErrorCode;
+import com.aegispulse.application.audit.AuditLogWriteUseCase;
 import com.aegispulse.application.policy.command.ApplyTemplatePolicyCommand;
 import com.aegispulse.application.policy.result.ApplyTemplatePolicyResult;
 import com.aegispulse.domain.consumer.key.model.ConsumerKeyStatus;
@@ -19,6 +22,8 @@ import com.aegispulse.domain.consumer.key.repository.ManagedConsumerKeyRepositor
 import com.aegispulse.domain.consumer.model.ConsumerType;
 import com.aegispulse.domain.consumer.model.ManagedConsumer;
 import com.aegispulse.domain.consumer.repository.ManagedConsumerRepository;
+import com.aegispulse.domain.audit.model.AuditAction;
+import com.aegispulse.domain.audit.model.AuditTargetType;
 import com.aegispulse.domain.policy.model.AuthPolicy;
 import com.aegispulse.domain.policy.model.AuthType;
 import com.aegispulse.domain.policy.model.PolicyBinding;
@@ -66,6 +71,9 @@ class TemplatePolicyApplyServiceTest {
     private PolicyDeploymentPort policyDeploymentPort;
 
     @Mock
+    private AuditLogWriteUseCase auditLogWriteUseCase;
+
+    @Mock
     private ObjectMapper objectMapper;
 
     @InjectMocks
@@ -78,6 +86,8 @@ class TemplatePolicyApplyServiceTest {
             .serviceId("svc_missing")
             .routeId(null)
             .templateType(TemplateType.PUBLIC)
+            .actorId("admin-user-001")
+            .traceId("trace-policy-test-001")
             .build();
 
         given(managedServiceRepository.existsById("svc_missing")).willReturn(false);
@@ -102,6 +112,8 @@ class TemplatePolicyApplyServiceTest {
             .serviceId("svc_01")
             .routeId("rte_missing")
             .templateType(TemplateType.INTERNAL)
+            .actorId("admin-user-001")
+            .traceId("trace-policy-test-001")
             .build();
 
         given(managedServiceRepository.existsById("svc_01")).willReturn(true);
@@ -127,6 +139,8 @@ class TemplatePolicyApplyServiceTest {
             .routeId(null)
             .consumerId("csm_partner")
             .templateType(TemplateType.PARTNER)
+            .actorId("admin-user-001")
+            .traceId("trace-policy-test-001")
             .build();
 
         TemplatePolicyProfile profile = partnerProfile();
@@ -156,6 +170,16 @@ class TemplatePolicyApplyServiceTest {
         assertThat(saveCaptor.getValue().getVersion()).isEqualTo(1);
 
         then(policyDeploymentPort).should().apply(any(PolicyBinding.class));
+        then(auditLogWriteUseCase).should()
+            .record(
+                AuditAction.TEMPLATE_APPLIED,
+                AuditTargetType.TEMPLATE_POLICY,
+                result.getBindingId(),
+                "admin-user-001",
+                "trace-policy-test-001",
+                "{}",
+                "{\"templateType\":\"PARTNER\"}"
+            );
     }
 
     @Test
@@ -165,6 +189,8 @@ class TemplatePolicyApplyServiceTest {
             .serviceId("svc_01")
             .routeId("rte_01")
             .templateType(TemplateType.PUBLIC)
+            .actorId("admin-user-001")
+            .traceId("trace-policy-test-001")
             .build();
 
         PolicyBinding previous = restoredBinding(
@@ -202,6 +228,8 @@ class TemplatePolicyApplyServiceTest {
             .routeId("rte_01")
             .consumerId("csm_partner")
             .templateType(TemplateType.PARTNER)
+            .actorId("admin-user-001")
+            .traceId("trace-policy-test-001")
             .build();
 
         PolicyBinding previous = restoredBinding(
@@ -251,6 +279,16 @@ class TemplatePolicyApplyServiceTest {
         assertThat(rollbackBinding.getPolicySnapshot()).isEqualTo(previous.getPolicySnapshot());
 
         then(policyDeploymentPort).should(times(2)).apply(any(PolicyBinding.class));
+        then(auditLogWriteUseCase).should(times(2))
+            .record(
+                any(AuditAction.class),
+                any(AuditTargetType.class),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString()
+            );
     }
 
     @Test
@@ -260,6 +298,8 @@ class TemplatePolicyApplyServiceTest {
             .serviceId("svc_01")
             .routeId(null)
             .templateType(TemplateType.PUBLIC)
+            .actorId("admin-user-001")
+            .traceId("trace-policy-test-001")
             .build();
 
         TemplatePolicyProfile profile = publicProfile();
@@ -283,6 +323,16 @@ class TemplatePolicyApplyServiceTest {
 
         then(policyBindingRepository).should(times(1)).save(any(PolicyBinding.class));
         then(policyDeploymentPort).should(times(1)).apply(any(PolicyBinding.class));
+        then(auditLogWriteUseCase).should()
+            .record(
+                eq(AuditAction.TEMPLATE_APPLY_FAILED),
+                eq(AuditTargetType.TEMPLATE_POLICY),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString()
+            );
     }
 
     @Test
@@ -292,6 +342,8 @@ class TemplatePolicyApplyServiceTest {
             .serviceId("svc_01")
             .routeId("rte_01")
             .templateType(TemplateType.PUBLIC)
+            .actorId("admin-user-001")
+            .traceId("trace-policy-test-001")
             .build();
 
         PolicyBinding previous = restoredBinding(
@@ -325,6 +377,16 @@ class TemplatePolicyApplyServiceTest {
 
         then(policyBindingRepository).should(times(2)).save(any(PolicyBinding.class));
         then(policyDeploymentPort).should(times(2)).apply(any(PolicyBinding.class));
+        then(auditLogWriteUseCase).should(times(2))
+            .record(
+                any(AuditAction.class),
+                any(AuditTargetType.class),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString()
+            );
     }
 
     @Test
@@ -334,6 +396,8 @@ class TemplatePolicyApplyServiceTest {
             .serviceId("svc_01")
             .routeId(null)
             .templateType(TemplateType.PUBLIC)
+            .actorId("admin-user-001")
+            .traceId("trace-policy-test-001")
             .build();
 
         TemplatePolicyProfile profile = publicProfile();
@@ -361,6 +425,8 @@ class TemplatePolicyApplyServiceTest {
             .serviceId("svc_01")
             .routeId(null)
             .templateType(TemplateType.PARTNER)
+            .actorId("admin-user-001")
+            .traceId("trace-policy-test-001")
             .build();
 
         given(managedServiceRepository.existsById("svc_01")).willReturn(true);
@@ -384,6 +450,8 @@ class TemplatePolicyApplyServiceTest {
             .routeId(null)
             .consumerId("csm_missing")
             .templateType(TemplateType.PARTNER)
+            .actorId("admin-user-001")
+            .traceId("trace-policy-test-001")
             .build();
 
         given(managedServiceRepository.existsById("svc_01")).willReturn(true);
@@ -407,6 +475,8 @@ class TemplatePolicyApplyServiceTest {
             .routeId(null)
             .consumerId("csm_internal")
             .templateType(TemplateType.PARTNER)
+            .actorId("admin-user-001")
+            .traceId("trace-policy-test-001")
             .build();
 
         given(managedServiceRepository.existsById("svc_01")).willReturn(true);
@@ -431,6 +501,8 @@ class TemplatePolicyApplyServiceTest {
             .routeId(null)
             .consumerId("csm_partner")
             .templateType(TemplateType.PARTNER)
+            .actorId("admin-user-001")
+            .traceId("trace-policy-test-001")
             .build();
 
         given(managedServiceRepository.existsById("svc_01")).willReturn(true);

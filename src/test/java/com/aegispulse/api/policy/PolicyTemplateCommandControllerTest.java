@@ -35,6 +35,8 @@ import org.springframework.test.web.servlet.MockMvc;
 @Import(TraceIdFilter.class)
 class PolicyTemplateCommandControllerTest {
 
+    private static final String ACTOR_ID_HEADER = "X-Actor-Id";
+
     @Autowired
     private MockMvc mockMvc;
 
@@ -60,6 +62,7 @@ class PolicyTemplateCommandControllerTest {
             post("/api/v1/policies/templates/partner/apply")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header(TraceIdSupport.TRACE_ID_HEADER, "trace-policy-001")
+                .header(ACTOR_ID_HEADER, "admin-user-001")
                 .content(
                     """
                     {
@@ -87,6 +90,8 @@ class PolicyTemplateCommandControllerTest {
         Assertions.assertThat(commandCaptor.getValue().getRouteId()).isEqualTo("rte_01JABCXYZ");
         Assertions.assertThat(commandCaptor.getValue().getConsumerId()).isEqualTo("csm_01JABCXYZ");
         Assertions.assertThat(commandCaptor.getValue().getTemplateType()).isEqualTo(TemplateType.PARTNER);
+        Assertions.assertThat(commandCaptor.getValue().getActorId()).isEqualTo("admin-user-001");
+        Assertions.assertThat(commandCaptor.getValue().getTraceId()).isEqualTo("trace-policy-001");
     }
 
     @Test
@@ -95,6 +100,7 @@ class PolicyTemplateCommandControllerTest {
         mockMvc.perform(
             post("/api/v1/policies/templates/unknown/apply")
                 .contentType(MediaType.APPLICATION_JSON)
+                .header(ACTOR_ID_HEADER, "admin-user-001")
                 .content(
                     """
                     {
@@ -117,6 +123,7 @@ class PolicyTemplateCommandControllerTest {
         mockMvc.perform(
             post("/api/v1/policies/templates/partner/apply")
                 .contentType(MediaType.APPLICATION_JSON)
+                .header(ACTOR_ID_HEADER, "admin-user-001")
                 .content(
                     """
                     {
@@ -143,6 +150,7 @@ class PolicyTemplateCommandControllerTest {
             post("/api/v1/policies/templates/public/apply")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header(TraceIdSupport.TRACE_ID_HEADER, "trace-policy-not-found")
+                .header(ACTOR_ID_HEADER, "admin-user-001")
                 .content(
                     """
                     {
@@ -163,6 +171,7 @@ class PolicyTemplateCommandControllerTest {
         mockMvc.perform(
             post("/api/v1/policies/templates/internal/apply")
                 .contentType(MediaType.APPLICATION_JSON)
+                .header(ACTOR_ID_HEADER, "admin-user-001")
                 .content(
                     """
                     {
@@ -189,6 +198,7 @@ class PolicyTemplateCommandControllerTest {
             post("/api/v1/policies/templates/internal/apply")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header(TraceIdSupport.TRACE_ID_HEADER, "trace-policy-route-not-found")
+                .header(ACTOR_ID_HEADER, "admin-user-001")
                 .content(
                     """
                     {
@@ -202,5 +212,27 @@ class PolicyTemplateCommandControllerTest {
             .andExpect(jsonPath("$.success").value(false))
             .andExpect(jsonPath("$.error.code").value("RESOURCE_NOT_FOUND"))
             .andExpect(jsonPath("$.error.traceId").value("trace-policy-route-not-found"));
+    }
+
+    @Test
+    @DisplayName("X-Actor-Id 헤더가 없으면 400 INVALID_REQUEST를 반환한다")
+    void shouldReturnBadRequestWhenActorIdHeaderIsMissing() throws Exception {
+        mockMvc.perform(
+            post("/api/v1/policies/templates/public/apply")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """
+                    {
+                      "serviceId": "svc_01JABCXYZ"
+                    }
+                    """
+                )
+        )
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.success").value(false))
+            .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"))
+            .andExpect(jsonPath("$.error.message").value("X-Actor-Id 헤더가 필요합니다."));
+
+        then(templatePolicyApplyUseCase).should(never()).apply(any());
     }
 }

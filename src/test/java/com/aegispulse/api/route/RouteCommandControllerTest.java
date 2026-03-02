@@ -36,6 +36,8 @@ import org.springframework.test.web.servlet.MockMvc;
 @Import(TraceIdFilter.class)
 class RouteCommandControllerTest {
 
+    private static final String ACTOR_ID_HEADER = "X-Actor-Id";
+
     @Autowired
     private MockMvc mockMvc;
 
@@ -64,6 +66,7 @@ class RouteCommandControllerTest {
             post("/api/v1/routes")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header(TraceIdSupport.TRACE_ID_HEADER, "trace-route-001")
+                .header(ACTOR_ID_HEADER, "admin-user-001")
                 .content(
                     """
                     {
@@ -91,6 +94,8 @@ class RouteCommandControllerTest {
         Assertions.assertThat(captured.getHosts()).containsExactly("api.partner.com");
         Assertions.assertThat(captured.getMethods()).hasSize(2);
         Assertions.assertThat(captured.isStripPath()).isTrue();
+        Assertions.assertThat(captured.getActorId()).isEqualTo("admin-user-001");
+        Assertions.assertThat(captured.getTraceId()).isEqualTo("trace-route-001");
     }
 
     @Test
@@ -99,6 +104,7 @@ class RouteCommandControllerTest {
         mockMvc.perform(
             post("/api/v1/routes")
                 .contentType(MediaType.APPLICATION_JSON)
+                .header(ACTOR_ID_HEADER, "admin-user-001")
                 .content(
                     objectMapper.writeValueAsString(
                         Map.of(
@@ -127,6 +133,7 @@ class RouteCommandControllerTest {
             post("/api/v1/routes")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header(TraceIdSupport.TRACE_ID_HEADER, "trace-route-not-found")
+                .header(ACTOR_ID_HEADER, "admin-user-001")
                 .content(
                     """
                     {
@@ -152,6 +159,7 @@ class RouteCommandControllerTest {
             post("/api/v1/routes")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header(TraceIdSupport.TRACE_ID_HEADER, "trace-route-conflict")
+                .header(ACTOR_ID_HEADER, "admin-user-001")
                 .content(
                     """
                     {
@@ -168,5 +176,28 @@ class RouteCommandControllerTest {
             .andExpect(jsonPath("$.error.code").value("ROUTE_CONFLICT"))
             .andExpect(jsonPath("$.error.message").value("동일 서비스 내 충돌하는 라우트입니다."))
             .andExpect(jsonPath("$.error.traceId").value("trace-route-conflict"));
+    }
+
+    @Test
+    @DisplayName("X-Actor-Id 헤더가 없으면 400 INVALID_REQUEST를 반환한다")
+    void shouldReturnBadRequestWhenActorIdHeaderIsMissing() throws Exception {
+        mockMvc.perform(
+            post("/api/v1/routes")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """
+                    {
+                      "serviceId": "svc_01JABCXYZ",
+                      "paths": ["/payments"]
+                    }
+                    """
+                )
+        )
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.success").value(false))
+            .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"))
+            .andExpect(jsonPath("$.error.message").value("X-Actor-Id 헤더가 필요합니다."));
+
+        then(routeRegistrationUseCase).should(never()).register(any());
     }
 }
