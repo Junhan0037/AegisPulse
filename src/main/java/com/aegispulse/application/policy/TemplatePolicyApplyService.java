@@ -2,11 +2,14 @@ package com.aegispulse.application.policy;
 
 import com.aegispulse.api.common.exception.AegisPulseException;
 import com.aegispulse.api.common.exception.ErrorCode;
+import com.aegispulse.application.audit.AuditLogWriteUseCase;
 import com.aegispulse.domain.consumer.key.model.ConsumerKeyStatus;
 import com.aegispulse.domain.consumer.key.repository.ManagedConsumerKeyRepository;
 import com.aegispulse.domain.consumer.model.ConsumerType;
 import com.aegispulse.domain.consumer.model.ManagedConsumer;
 import com.aegispulse.domain.consumer.repository.ManagedConsumerRepository;
+import com.aegispulse.domain.audit.model.AuditAction;
+import com.aegispulse.domain.audit.model.AuditTargetType;
 import com.aegispulse.application.policy.command.ApplyTemplatePolicyCommand;
 import com.aegispulse.application.policy.result.ApplyTemplatePolicyResult;
 import com.aegispulse.domain.policy.model.PolicyBinding;
@@ -41,11 +44,13 @@ public class TemplatePolicyApplyService implements TemplatePolicyApplyUseCase {
     private final TemplatePolicyMapper templatePolicyMapper;
     private final PolicyBindingRepository policyBindingRepository;
     private final PolicyDeploymentPort policyDeploymentPort;
+    private final AuditLogWriteUseCase auditLogWriteUseCase;
     private final ObjectMapper objectMapper;
 
     @Override
     @Transactional(noRollbackFor = AegisPulseException.class)
     public ApplyTemplatePolicyResult apply(ApplyTemplatePolicyCommand command) {
+        validateAuditContext(command.getActorId(), command.getTraceId());
         validateServiceExists(command.getServiceId());
         validateRouteOwnership(command.getRouteId(), command.getServiceId());
         validatePartnerTemplateRequirements(command);
@@ -71,13 +76,35 @@ public class TemplatePolicyApplyService implements TemplatePolicyApplyUseCase {
         try {
             policyDeploymentPort.apply(saved);
         } catch (RuntimeException ignored) {
-            rollbackWhenApplyFailed(previousBinding, saved);
+            rollbackWhenApplyFailed(command, previousBinding, saved);
         }
+
+        recordAudit(
+            AuditAction.TEMPLATE_APPLIED,
+            saved.getId(),
+            command.getActorId(),
+            command.getTraceId(),
+            previousBinding.map(PolicyBinding::getPolicySnapshot).orElse("{}"),
+            saved.getPolicySnapshot()
+        );
 
         return buildApplyResult(saved);
     }
 
-    private void rollbackWhenApplyFailed(Optional<PolicyBinding> previousBinding, PolicyBinding failedBinding) {
+    private void rollbackWhenApplyFailed(
+        ApplyTemplatePolicyCommand command,
+        Optional<PolicyBinding> previousBinding,
+        PolicyBinding failedBinding
+    ) {
+        recordAudit(
+            AuditAction.TEMPLATE_APPLY_FAILED,
+            failedBinding.getId(),
+            command.getActorId(),
+            command.getTraceId(),
+            previousBinding.map(PolicyBinding::getPolicySnapshot).orElse("{}"),
+            failedBinding.getPolicySnapshot()
+        );
+
         if (previousBinding.isEmpty()) {
             throw new AegisPulseException(
                 ErrorCode.INTERNAL_SERVER_ERROR,
@@ -99,11 +126,28 @@ public class TemplatePolicyApplyService implements TemplatePolicyApplyUseCase {
         try {
             policyDeploymentPort.apply(rollbackBinding);
         } catch (RuntimeException rollbackException) {
+            recordAudit(
+                AuditAction.TEMPLATE_ROLLBACK_FAILED,
+                rollbackBinding.getId(),
+                command.getActorId(),
+                command.getTraceId(),
+                failedBinding.getPolicySnapshot(),
+                rollbackBinding.getPolicySnapshot()
+            );
             throw new AegisPulseException(
                 ErrorCode.INTERNAL_SERVER_ERROR,
                 "정책 적용 및 자동 롤백에 실패했습니다."
             );
         }
+
+        recordAudit(
+            AuditAction.TEMPLATE_ROLLED_BACK,
+            rollbackBinding.getId(),
+            command.getActorId(),
+            command.getTraceId(),
+            failedBinding.getPolicySnapshot(),
+            rollbackBinding.getPolicySnapshot()
+        );
 
         throw new AegisPulseException(
             ErrorCode.INTERNAL_SERVER_ERROR,
@@ -179,5 +223,34 @@ public class TemplatePolicyApplyService implements TemplatePolicyApplyUseCase {
 
     private String generatePolicyBindingId() {
         return "plb_" + UUID.randomUUID().toString().replace("-", "");
+    }
+
+    private void validateAuditContext(String actorId, String traceId) {
+        // 컨트롤러 검증 누락이나 내부 호출 오류가 있어도 감사로그 필수 컨텍스트 누락을 차단한다.
+        if (!StringUtils.hasText(actorId) || !StringUtils.hasText(traceId)) {
+            throw new AegisPulseException(
+                ErrorCode.INTERNAL_SERVER_ERROR,
+                "감사로그 필수 컨텍스트(actorId/traceId)가 누락되었습니다."
+            );
+        }
+    }
+
+    private void recordAudit(
+        AuditAction action,
+        String targetId,
+        String actorId,
+        String traceId,
+        String beforeJson,
+        String afterJson
+    ) {
+        auditLogWriteUseCase.record(
+            action,
+            AuditTargetType.TEMPLATE_POLICY,
+            targetId,
+            actorId,
+            traceId,
+            beforeJson,
+            afterJson
+        );
     }
 }

@@ -20,6 +20,7 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -32,22 +33,28 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class PolicyTemplateCommandController {
 
+    private static final String ACTOR_ID_HEADER = "X-Actor-Id";
+
     private final TemplatePolicyApplyUseCase templatePolicyApplyUseCase;
 
     @PostMapping("/{templateType}/apply")
     public ResponseEntity<ApiResponse<ApplyTemplatePolicyResponse>> applyTemplate(
         @PathVariable String templateType,
         @Valid @RequestBody ApplyTemplatePolicyRequest request,
+        @RequestHeader(value = ACTOR_ID_HEADER, required = false) String actorId,
         HttpServletRequest httpServletRequest
     ) {
         TemplateType resolvedTemplateType = parseTemplateType(templateType);
         validatePartnerRequest(resolvedTemplateType, request.getConsumerId());
+        String traceId = resolveTraceId(httpServletRequest);
 
         ApplyTemplatePolicyCommand command = ApplyTemplatePolicyCommand.builder()
             .serviceId(request.getServiceId().trim())
             .routeId(normalizeOptionalId(request.getRouteId()))
             .consumerId(normalizeOptionalId(request.getConsumerId()))
             .templateType(resolvedTemplateType)
+            .actorId(normalizeRequiredActorId(actorId))
+            .traceId(traceId)
             .build();
 
         ApplyTemplatePolicyResult result = templatePolicyApplyUseCase.apply(command);
@@ -61,7 +68,7 @@ public class PolicyTemplateCommandController {
             .build();
 
         return ResponseEntity.status(HttpStatus.CREATED)
-            .body(ApiResponse.success(response, resolveTraceId(httpServletRequest)));
+            .body(ApiResponse.success(response, traceId));
     }
 
     private TemplateType parseTemplateType(String templateType) {
@@ -87,6 +94,13 @@ public class PolicyTemplateCommandController {
         if (templateType == TemplateType.PARTNER && !StringUtils.hasText(consumerId)) {
             throw new AegisPulseException(ErrorCode.INVALID_REQUEST, "partner 템플릿은 consumerId가 필수입니다.");
         }
+    }
+
+    private String normalizeRequiredActorId(String actorId) {
+        if (!StringUtils.hasText(actorId)) {
+            throw new AegisPulseException(ErrorCode.INVALID_REQUEST, "X-Actor-Id 헤더가 필요합니다.");
+        }
+        return actorId.trim();
     }
 
     private String resolveTraceId(HttpServletRequest request) {

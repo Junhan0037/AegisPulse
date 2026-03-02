@@ -1,5 +1,7 @@
 package com.aegispulse.api.route;
 
+import com.aegispulse.api.common.exception.AegisPulseException;
+import com.aegispulse.api.common.exception.ErrorCode;
 import com.aegispulse.api.common.response.ApiResponse;
 import com.aegispulse.api.route.dto.CreateRouteRequest;
 import com.aegispulse.api.route.dto.CreateRouteResponse;
@@ -19,6 +21,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -31,19 +34,25 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class RouteCommandController {
 
+    private static final String ACTOR_ID_HEADER = "X-Actor-Id";
+
     private final RouteRegistrationUseCase routeRegistrationUseCase;
 
     @PostMapping
     public ResponseEntity<ApiResponse<CreateRouteResponse>> createRoute(
         @Valid @RequestBody CreateRouteRequest request,
+        @RequestHeader(value = ACTOR_ID_HEADER, required = false) String actorId,
         HttpServletRequest httpServletRequest
     ) {
+        String traceId = resolveTraceId(httpServletRequest);
         RegisterRouteCommand command = RegisterRouteCommand.builder()
             .serviceId(request.getServiceId().trim())
             .paths(normalizePaths(request.getPaths()))
             .hosts(normalizeHosts(request.getHosts()))
             .methods(normalizeMethods(request.getMethods()))
             .stripPath(resolveStripPath(request.getStripPath()))
+            .actorId(normalizeRequiredActorId(actorId))
+            .traceId(traceId)
             .build();
 
         RegisterRouteResult result = routeRegistrationUseCase.register(command);
@@ -57,7 +66,7 @@ public class RouteCommandController {
             .build();
 
         return ResponseEntity.status(HttpStatus.CREATED)
-            .body(ApiResponse.success(response, resolveTraceId(httpServletRequest)));
+            .body(ApiResponse.success(response, traceId));
     }
 
     private List<String> normalizePaths(List<String> paths) {
@@ -89,6 +98,13 @@ public class RouteCommandController {
     private boolean resolveStripPath(Boolean stripPath) {
         // FR-002 기본값: stripPath 미입력 시 true.
         return stripPath == null || stripPath;
+    }
+
+    private String normalizeRequiredActorId(String actorId) {
+        if (!StringUtils.hasText(actorId)) {
+            throw new AegisPulseException(ErrorCode.INVALID_REQUEST, "X-Actor-Id 헤더가 필요합니다.");
+        }
+        return actorId.trim();
     }
 
     private String resolveTraceId(HttpServletRequest request) {

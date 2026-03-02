@@ -15,4 +15,6 @@ public class ApplyTemplatePolicyCommand {
     private final String routeId;
     private final String consumerId;
     private final TemplateType templateType;
+    private final String actorId;
+    private final String traceId;
 }

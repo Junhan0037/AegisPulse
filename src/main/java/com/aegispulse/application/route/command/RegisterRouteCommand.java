@@ -17,4 +17,6 @@ public class RegisterRouteCommand {
     private final List<String> hosts;
     private final List<RouteHttpMethod> methods;
     private final boolean stripPath;
+    private final String actorId;
+    private final String traceId;
 }
