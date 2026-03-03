@@ -259,6 +259,32 @@ class ConsumerCommandControllerTest {
     }
 
     @Test
+    @DisplayName("서비스가 격리 모드면 503 SERVICE_ISOLATED를 반환한다")
+    void shouldReturnServiceUnavailableWhenServiceIsIsolated() throws Exception {
+        given(authenticateConsumerKeyUseCase.authenticate(any()))
+            .willThrow(new AegisPulseException(ErrorCode.SERVICE_ISOLATED, "서비스가 격리 모드로 차단되었습니다."));
+
+        mockMvc.perform(
+            post("/api/v1/consumers/keys/authenticate")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("X-API-Key", "ak_active_key")
+                .header(TraceIdSupport.TRACE_ID_HEADER, "trace-key-auth-isolated")
+                .content(
+                    """
+                    {
+                      "serviceId": "svc_01JABCXYZ",
+                      "consumerId": "csm_01JABCXYZ"
+                    }
+                    """
+                )
+        )
+            .andExpect(status().isServiceUnavailable())
+            .andExpect(jsonPath("$.success").value(false))
+            .andExpect(jsonPath("$.error.code").value("SERVICE_ISOLATED"))
+            .andExpect(jsonPath("$.error.traceId").value("trace-key-auth-isolated"));
+    }
+
+    @Test
     @DisplayName("API Key 인증 성공 시 200과 인증 결과를 반환한다")
     void shouldAuthenticateConsumerKeyWhenRequestIsValid() throws Exception {
         given(authenticateConsumerKeyUseCase.authenticate(any()))

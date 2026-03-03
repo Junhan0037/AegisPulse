@@ -19,6 +19,10 @@ import com.aegispulse.domain.consumer.repository.ManagedConsumerRepository;
 import com.aegispulse.domain.policy.model.PolicyBinding;
 import com.aegispulse.domain.policy.model.TemplateType;
 import com.aegispulse.domain.policy.repository.PolicyBindingRepository;
+import com.aegispulse.domain.service.model.ManagedService;
+import com.aegispulse.domain.service.model.ServiceEnvironment;
+import com.aegispulse.domain.service.model.ServiceStatus;
+import com.aegispulse.domain.service.repository.ManagedServiceRepository;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -42,6 +46,9 @@ class ConsumerKeyAuthenticationServiceTest {
     private ManagedConsumerKeyRepository managedConsumerKeyRepository;
 
     @Mock
+    private ManagedServiceRepository managedServiceRepository;
+
+    @Mock
     private ApiKeyHasher apiKeyHasher;
 
     @InjectMocks
@@ -53,6 +60,7 @@ class ConsumerKeyAuthenticationServiceTest {
         AuthenticateConsumerKeyCommand command = validCommand("ak_active_key");
         ManagedConsumerKey activeKey = activeKey("key_active_01", "hash_active_01");
 
+        given(managedServiceRepository.findById("svc_01")).willReturn(Optional.of(activeService("svc_01")));
         given(policyBindingRepository.findLatest("svc_01", "rte_01"))
             .willReturn(Optional.of(partnerBinding("svc_01", "rte_01")));
         given(managedConsumerRepository.findById("csm_partner"))
@@ -74,6 +82,7 @@ class ConsumerKeyAuthenticationServiceTest {
     void shouldThrowForbiddenWhenPartnerTemplateIsNotApplied() {
         AuthenticateConsumerKeyCommand command = validCommand("ak_active_key");
 
+        given(managedServiceRepository.findById("svc_01")).willReturn(Optional.of(activeService("svc_01")));
         given(policyBindingRepository.findLatest("svc_01", "rte_01"))
             .willReturn(Optional.of(nonPartnerBinding("svc_01", "rte_01")));
 
@@ -90,6 +99,7 @@ class ConsumerKeyAuthenticationServiceTest {
     void shouldThrowNotFoundWhenConsumerDoesNotExist() {
         AuthenticateConsumerKeyCommand command = validCommand("ak_active_key");
 
+        given(managedServiceRepository.findById("svc_01")).willReturn(Optional.of(activeService("svc_01")));
         given(policyBindingRepository.findLatest("svc_01", "rte_01"))
             .willReturn(Optional.of(partnerBinding("svc_01", "rte_01")));
         given(managedConsumerRepository.findById("csm_partner")).willReturn(Optional.empty());
@@ -109,6 +119,7 @@ class ConsumerKeyAuthenticationServiceTest {
         ManagedConsumerKey activeKey = activeKey("key_active_01", "hash_active_01");
         ManagedConsumerKey revokedKey = revokedKey("key_revoked_01", "hash_revoked_01");
 
+        given(managedServiceRepository.findById("svc_01")).willReturn(Optional.of(activeService("svc_01")));
         given(policyBindingRepository.findLatest("svc_01", "rte_01"))
             .willReturn(Optional.of(partnerBinding("svc_01", "rte_01")));
         given(managedConsumerRepository.findById("csm_partner"))
@@ -135,6 +146,7 @@ class ConsumerKeyAuthenticationServiceTest {
         ManagedConsumerKey activeKey = activeKey("key_active_01", "hash_active_01");
         ManagedConsumerKey revokedKey = revokedKey("key_revoked_01", "hash_revoked_01");
 
+        given(managedServiceRepository.findById("svc_01")).willReturn(Optional.of(activeService("svc_01")));
         given(policyBindingRepository.findLatest("svc_01", "rte_01"))
             .willReturn(Optional.of(partnerBinding("svc_01", "rte_01")));
         given(managedConsumerRepository.findById("csm_partner"))
@@ -159,6 +171,7 @@ class ConsumerKeyAuthenticationServiceTest {
     void shouldThrowUnauthorizedWhenApiKeyIsBlank() {
         AuthenticateConsumerKeyCommand command = validCommand("   ");
 
+        given(managedServiceRepository.findById("svc_01")).willReturn(Optional.of(activeService("svc_01")));
         given(policyBindingRepository.findLatest("svc_01", "rte_01"))
             .willReturn(Optional.of(partnerBinding("svc_01", "rte_01")));
         given(managedConsumerRepository.findById("csm_partner"))
@@ -172,6 +185,23 @@ class ConsumerKeyAuthenticationServiceTest {
             });
     }
 
+    @Test
+    @DisplayName("서비스가 격리 모드면 인증보다 먼저 SERVICE_ISOLATED 예외를 던진다")
+    void shouldThrowServiceIsolatedWhenServiceStatusIsIsolated() {
+        AuthenticateConsumerKeyCommand command = validCommand("ak_active_key");
+
+        given(managedServiceRepository.findById("svc_01")).willReturn(Optional.of(isolatedService("svc_01")));
+
+        assertThatThrownBy(() -> consumerKeyAuthenticationService.authenticate(command))
+            .isInstanceOf(AegisPulseException.class)
+            .satisfies(exception -> {
+                AegisPulseException aegisPulseException = (AegisPulseException) exception;
+                assertThat(aegisPulseException.getErrorCode()).isEqualTo(ErrorCode.SERVICE_ISOLATED);
+            });
+
+        then(policyBindingRepository).should(never()).findLatest("svc_01", "rte_01");
+    }
+
     private AuthenticateConsumerKeyCommand validCommand(String apiKey) {
         return AuthenticateConsumerKeyCommand.builder()
             .serviceId("svc_01")
@@ -183,6 +213,30 @@ class ConsumerKeyAuthenticationServiceTest {
 
     private ManagedConsumer partnerConsumer(String consumerId) {
         return ManagedConsumer.newConsumer(consumerId, "partner-client-a", ConsumerType.PARTNER);
+    }
+
+    private ManagedService activeService(String serviceId) {
+        return ManagedService.restore(
+            serviceId,
+            "partner-payment-api",
+            "https://payment.internal",
+            ServiceEnvironment.PROD,
+            ServiceStatus.ACTIVE,
+            Instant.parse("2026-02-20T12:00:00Z"),
+            Instant.parse("2026-02-20T12:00:00Z")
+        );
+    }
+
+    private ManagedService isolatedService(String serviceId) {
+        return ManagedService.restore(
+            serviceId,
+            "partner-payment-api",
+            "https://payment.internal",
+            ServiceEnvironment.PROD,
+            ServiceStatus.ISOLATED,
+            Instant.parse("2026-02-20T12:00:00Z"),
+            Instant.parse("2026-02-20T12:10:00Z")
+        );
     }
 
     private ManagedConsumerKey activeKey(String keyId, String keyHash) {
