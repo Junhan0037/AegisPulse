@@ -67,4 +67,34 @@ public class ManagedService {
             .updatedAt(updatedAt)
             .build();
     }
+
+    /**
+     * 격리 모드로 전환한 새 인스턴스를 반환한다.
+     */
+    public ManagedService isolate(Instant now) {
+        return ManagedService.builder()
+            .id(id)
+            .name(name)
+            .upstreamUrl(upstreamUrl)
+            .environment(environment)
+            .status(ServiceStatus.ISOLATED)
+            .createdAt(createdAt)
+            .updatedAt(now)
+            .build();
+    }
+
+    /**
+     * 격리 모드를 해제한 새 인스턴스를 반환한다.
+     */
+    public ManagedService recover(Instant now) {
+        return ManagedService.builder()
+            .id(id)
+            .name(name)
+            .upstreamUrl(upstreamUrl)
+            .environment(environment)
+            .status(ServiceStatus.ACTIVE)
+            .createdAt(createdAt)
+            .updatedAt(now)
+            .build();
+    }
 }

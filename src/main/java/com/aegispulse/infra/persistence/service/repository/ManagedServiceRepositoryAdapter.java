@@ -5,6 +5,7 @@ import com.aegispulse.domain.service.model.ServiceEnvironment;
 import com.aegispulse.domain.service.repository.ManagedServiceRepository;
 import com.aegispulse.infra.persistence.service.entity.ManagedServiceJpaEntity;
 import java.util.List;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
@@ -25,6 +26,11 @@ public class ManagedServiceRepositoryAdapter implements ManagedServiceRepository
     @Override
     public boolean existsByEnvironmentAndName(ServiceEnvironment environment, String name) {
         return managedServiceJpaRepository.existsByEnvironmentAndName(environment, name);
+    }
+
+    @Override
+    public Optional<ManagedService> findById(String serviceId) {
+        return managedServiceJpaRepository.findById(serviceId).map(ManagedServiceJpaEntity::toDomain);
     }
 
     @Override

@@ -9,11 +9,13 @@ import com.aegispulse.domain.alert.repository.AlertRepository;
 import com.aegispulse.domain.metric.model.MetricPoint;
 import com.aegispulse.domain.metric.repository.MetricPointRepository;
 import com.aegispulse.domain.service.model.ManagedService;
+import com.aegispulse.domain.service.model.ServiceStatus;
 import com.aegispulse.domain.service.repository.ManagedServiceRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -24,7 +26,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * FR-007 임계치 평가/상태 전이 담당 서비스.
+ * FR-007/FR-009 임계치 평가/상태 전이 담당 서비스.
  */
 @Service
 @RequiredArgsConstructor
@@ -34,6 +36,12 @@ public class AlertEvaluationService {
     private static final Duration COOLDOWN_DURATION = Duration.ofMinutes(10);
     private static final double THRESHOLD_5XX_RATE = 2.0;
     private static final double THRESHOLD_P95_LATENCY_MS = 800.0;
+    private static final double ISOLATION_TRIGGER_5XX_RATE = 5.0;
+    private static final double ISOLATION_RELEASE_5XX_RATE = 1.0;
+    private static final double ISOLATION_MIN_REQUEST_COUNT = 200.0;
+    private static final Duration ISOLATION_RECOVERY_WINDOW_DURATION = Duration.ofMinutes(10);
+    private static final Duration METRIC_POINT_INTERVAL = Duration.ofMinutes(1);
+    private static final int ISOLATION_RECOVERY_REQUIRED_POINTS = 10;
 
     private final ManagedServiceRepository managedServiceRepository;
     private final MetricPointRepository metricPointRepository;
@@ -54,11 +62,12 @@ public class AlertEvaluationService {
     void evaluateAt(Instant evaluatedAt) {
         List<ManagedService> services = managedServiceRepository.findAll();
         for (ManagedService service : services) {
-            evaluateService(service.getId(), evaluatedAt);
+            evaluateService(service, evaluatedAt);
         }
     }
 
-    private void evaluateService(String serviceId, Instant evaluatedAt) {
+    private void evaluateService(ManagedService service, Instant evaluatedAt) {
+        String serviceId = service.getId();
         Instant fromInclusive = evaluatedAt.minus(WINDOW_DURATION);
         List<MetricPoint> serviceAxisPoints = metricPointRepository.findByServiceIdAndWindow(
             serviceId,
@@ -93,6 +102,131 @@ public class AlertEvaluationService {
             THRESHOLD_P95_LATENCY_MS,
             evaluatedAt
         );
+
+        evaluateIsolationMode(service, serviceAxisPoints, observed5xxRate, evaluatedAt);
+    }
+
+    private void evaluateIsolationMode(
+        ManagedService service,
+        List<MetricPoint> serviceAxisPoints,
+        double observed5xxRate,
+        Instant evaluatedAt
+    ) {
+        if (service.getStatus() == ServiceStatus.ACTIVE) {
+            if (!shouldActivateIsolation(serviceAxisPoints, observed5xxRate)) {
+                return;
+            }
+
+            // 격리 발동 시에는 서비스 상태 전이와 전환 이벤트 알림을 함께 기록한다.
+            managedServiceRepository.save(service.isolate(evaluatedAt));
+            openIsolationAlert(
+                service.getId(),
+                observed5xxRate,
+                estimateRequestCount(serviceAxisPoints),
+                evaluatedAt
+            );
+            return;
+        }
+
+        if (service.getStatus() == ServiceStatus.ISOLATED && shouldRecoverFromIsolation(service.getId(), evaluatedAt)) {
+            // 해제 조건 충족 시 자동 복구하고 격리 이벤트 알림을 RESOLVED로 전이한다.
+            managedServiceRepository.save(service.recover(evaluatedAt));
+            resolveIsolationAlert(service.getId(), evaluatedAt);
+        }
+    }
+
+    private boolean shouldActivateIsolation(List<MetricPoint> serviceAxisPoints, double observed5xxRate) {
+        if (observed5xxRate <= ISOLATION_TRIGGER_5XX_RATE) {
+            return false;
+        }
+
+        return estimateRequestCount(serviceAxisPoints) >= ISOLATION_MIN_REQUEST_COUNT;
+    }
+
+    private double estimateRequestCount(List<MetricPoint> serviceAxisPoints) {
+        // 1분 포인트의 rps를 실제 요청수로 환산하기 위해 60초를 곱해 누적한다.
+        return serviceAxisPoints.stream()
+            .mapToDouble(point -> point.getRps() * 60)
+            .sum();
+    }
+
+    private boolean shouldRecoverFromIsolation(String serviceId, Instant evaluatedAt) {
+        Instant fromInclusive = evaluatedAt.minus(ISOLATION_RECOVERY_WINDOW_DURATION);
+        List<MetricPoint> recoveryWindowPoints = metricPointRepository.findByServiceIdAndWindow(
+            serviceId,
+            fromInclusive,
+            evaluatedAt
+        ).stream()
+            .filter(point -> point.getRouteId() == null && point.getConsumerId() == null)
+            .sorted(Comparator.comparing(MetricPoint::getWindowStart))
+            .toList();
+
+        if (recoveryWindowPoints.size() < ISOLATION_RECOVERY_REQUIRED_POINTS) {
+            return false;
+        }
+
+        List<MetricPoint> latestTenPoints = recoveryWindowPoints.subList(
+            recoveryWindowPoints.size() - ISOLATION_RECOVERY_REQUIRED_POINTS,
+            recoveryWindowPoints.size()
+        );
+        if (!isContinuousOneMinutePoints(latestTenPoints)) {
+            return false;
+        }
+
+        return latestTenPoints.stream()
+            .allMatch(point -> point.getStatus5xxRate() < ISOLATION_RELEASE_5XX_RATE);
+    }
+
+    private boolean isContinuousOneMinutePoints(List<MetricPoint> points) {
+        for (int index = 1; index < points.size(); index++) {
+            Instant previous = points.get(index - 1).getWindowStart();
+            Instant current = points.get(index).getWindowStart();
+            if (!previous.plus(METRIC_POINT_INTERVAL).equals(current)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void openIsolationAlert(
+        String serviceId,
+        double observed5xxRate,
+        double estimatedRequestCount,
+        Instant evaluatedAt
+    ) {
+        if (alertRepository.findActiveByTargetAndType(serviceId, AlertType.SERVICE_ISOLATION_MODE).isPresent()) {
+            return;
+        }
+
+        Alert openAlert = Alert.newOpenAlert(
+            null,
+            AlertType.SERVICE_ISOLATION_MODE,
+            serviceId,
+            evaluatedAt,
+            buildIsolationPayloadJson(serviceId, "OPEN", observed5xxRate, estimatedRequestCount, evaluatedAt)
+        );
+        alertRepository.save(openAlert);
+    }
+
+    private void resolveIsolationAlert(String serviceId, Instant evaluatedAt) {
+        Optional<Alert> activeIsolationAlert = alertRepository.findActiveByTargetAndType(
+            serviceId,
+            AlertType.SERVICE_ISOLATION_MODE
+        );
+        if (activeIsolationAlert.isEmpty()) {
+            return;
+        }
+
+        Alert resolvedAlert;
+        try {
+            resolvedAlert = activeIsolationAlert.get().resolve(
+                evaluatedAt,
+                buildIsolationPayloadJson(serviceId, "RESOLVED", null, null, evaluatedAt)
+            );
+        } catch (IllegalStateException exception) {
+            throw new AegisPulseException(ErrorCode.ALERT_STATE_CONFLICT, exception.getMessage());
+        }
+        alertRepository.save(resolvedAlert);
     }
 
     private void evaluateRule(
@@ -188,6 +322,36 @@ public class AlertEvaluationService {
             throw new AegisPulseException(
                 ErrorCode.INTERNAL_SERVER_ERROR,
                 "알림 payload 직렬화에 실패했습니다."
+            );
+        }
+    }
+
+    private String buildIsolationPayloadJson(
+        String serviceId,
+        String transition,
+        Double observedValue,
+        Double estimatedRequestCount,
+        Instant evaluatedAt
+    ) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("serviceId", serviceId);
+        payload.put("alertType", AlertType.SERVICE_ISOLATION_MODE.name());
+        payload.put("window", "5m");
+        payload.put("transition", transition);
+        payload.put("triggerThreshold", ISOLATION_TRIGGER_5XX_RATE);
+        payload.put("releaseThreshold", ISOLATION_RELEASE_5XX_RATE);
+        payload.put("minimumRequestCount", ISOLATION_MIN_REQUEST_COUNT);
+        payload.put("recoveryWindowMinutes", ISOLATION_RECOVERY_WINDOW_DURATION.toMinutes());
+        payload.put("observedValue", observedValue);
+        payload.put("estimatedRequestCount", estimatedRequestCount);
+        payload.put("evaluatedAt", evaluatedAt.toString());
+
+        try {
+            return objectMapper.writeValueAsString(payload);
+        } catch (JsonProcessingException exception) {
+            throw new AegisPulseException(
+                ErrorCode.INTERNAL_SERVER_ERROR,
+                "격리 모드 payload 직렬화에 실패했습니다."
             );
         }
     }

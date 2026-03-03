@@ -13,6 +13,9 @@ import com.aegispulse.domain.consumer.repository.ManagedConsumerRepository;
 import com.aegispulse.domain.policy.model.PolicyBinding;
 import com.aegispulse.domain.policy.model.TemplateType;
 import com.aegispulse.domain.policy.repository.PolicyBindingRepository;
+import com.aegispulse.domain.service.model.ManagedService;
+import com.aegispulse.domain.service.model.ServiceStatus;
+import com.aegispulse.domain.service.repository.ManagedServiceRepository;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -30,11 +33,14 @@ public class ConsumerKeyAuthenticationService implements AuthenticateConsumerKey
     private final PolicyBindingRepository policyBindingRepository;
     private final ManagedConsumerRepository managedConsumerRepository;
     private final ManagedConsumerKeyRepository managedConsumerKeyRepository;
+    private final ManagedServiceRepository managedServiceRepository;
     private final ApiKeyHasher apiKeyHasher;
 
     @Override
     @Transactional(readOnly = true)
     public AuthenticateConsumerKeyResult authenticate(AuthenticateConsumerKeyCommand command) {
+        // FR-009 우선순위에 따라 인증 로직보다 먼저 격리 모드 여부를 검사한다.
+        validateServiceIsNotIsolated(command.getServiceId());
         validatePartnerTemplateBinding(command.getServiceId(), command.getRouteId());
         ManagedConsumer consumer = loadPartnerConsumer(command.getConsumerId());
 
@@ -65,6 +71,18 @@ public class ConsumerKeyAuthenticationService implements AuthenticateConsumerKey
         }
 
         throw new AegisPulseException(ErrorCode.UNAUTHORIZED, "API Key 인증에 실패했습니다.");
+    }
+
+    private void validateServiceIsNotIsolated(String serviceId) {
+        ManagedService service = managedServiceRepository.findById(serviceId)
+            .orElseThrow(() -> new AegisPulseException(ErrorCode.RESOURCE_NOT_FOUND, "요청한 서비스를 찾을 수 없습니다."));
+
+        if (service.getStatus() == ServiceStatus.ISOLATED) {
+            throw new AegisPulseException(
+                ErrorCode.SERVICE_ISOLATED,
+                "현재 서비스가 격리 모드로 차단되어 인증 요청을 처리할 수 없습니다."
+            );
+        }
     }
 
     private void validatePartnerTemplateBinding(String serviceId, String routeId) {

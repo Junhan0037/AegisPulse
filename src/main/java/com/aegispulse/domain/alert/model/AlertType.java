@@ -8,7 +8,8 @@ import com.aegispulse.api.common.exception.ErrorCode;
  */
 public enum AlertType {
     SERVICE_5XX_RATE_HIGH,
-    SERVICE_P95_LATENCY_HIGH;
+    SERVICE_P95_LATENCY_HIGH,
+    SERVICE_ISOLATION_MODE;
 
     /**
      * 쿼리 파라미터 문자열을 알림 타입으로 변환한다.
@@ -23,7 +24,7 @@ public enum AlertType {
         } catch (IllegalArgumentException exception) {
             throw new AegisPulseException(
                 ErrorCode.INVALID_REQUEST,
-                "alertType은 SERVICE_5XX_RATE_HIGH, SERVICE_P95_LATENCY_HIGH 중 하나여야 합니다."
+                "alertType은 SERVICE_5XX_RATE_HIGH, SERVICE_P95_LATENCY_HIGH, SERVICE_ISOLATION_MODE 중 하나여야 합니다."
             );
         }
     }

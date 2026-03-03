@@ -3,6 +3,7 @@ package com.aegispulse.domain.service.repository;
 import com.aegispulse.domain.service.model.ManagedService;
 import com.aegispulse.domain.service.model.ServiceEnvironment;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Service 도메인 저장소 추상화.
@@ -19,6 +20,11 @@ public interface ManagedServiceRepository {
      * 동일 환경의 서비스 이름 중복 여부를 조회한다.
      */
     boolean existsByEnvironmentAndName(ServiceEnvironment environment, String name);
+
+    /**
+     * 서비스 ID 기준 단건 조회를 수행한다.
+     */
+    Optional<ManagedService> findById(String serviceId);
 
     /**
      * 서비스 도메인 모델을 저장한다.

@@ -18,6 +18,7 @@ public enum ErrorCode {
     ROUTE_CONFLICT(HttpStatus.CONFLICT, "ROUTE_CONFLICT", "동일 서비스 내 충돌하는 라우트입니다."),
     ALERT_NOT_FOUND(HttpStatus.NOT_FOUND, "ALERT_NOT_FOUND", "요청한 알림을 찾을 수 없습니다."),
     ALERT_STATE_CONFLICT(HttpStatus.CONFLICT, "ALERT_STATE_CONFLICT", "요청한 알림 상태에서 수행할 수 없는 작업입니다."),
+    SERVICE_ISOLATED(HttpStatus.SERVICE_UNAVAILABLE, "SERVICE_ISOLATED", "현재 서비스가 격리 모드로 차단되어 있습니다."),
     UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "인증에 실패했습니다."),
     FORBIDDEN(HttpStatus.FORBIDDEN, "FORBIDDEN", "접근 권한이 없습니다."),
     INTERNAL_SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_SERVER_ERROR", "서버 내부 오류가 발생했습니다.");
